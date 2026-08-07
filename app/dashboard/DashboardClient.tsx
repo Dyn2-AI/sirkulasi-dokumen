@@ -83,14 +83,17 @@ export default function DashboardClient({
   const [isLogModalOpen, setIsLogModalOpen] = useState(false)
   const [isExportModalOpen, setIsExportModalOpen] = useState(false)
 
+  // State Hapus Single Dokumen (Modal UI)
+  const [docToDelete, setDocToDelete] = useState<{ id: string; baNumber: string } | null>(null)
+  const [isDeletingSingle, setIsDeletingSingle] = useState(false)
+
   // State Hapus Massal 1 Bulan
   const [bulkDeleteMonth, setBulkDeleteMonth] = useState(new Date().toISOString().slice(0, 7))
   const [isBulkDeleteModalOpen, setIsBulkDeleteModalOpen] = useState(false)
   const [isBulkDeleting, startBulkDeleteTransition] = useTransition()
 
-  // Details & Loaders
+  // Details
   const [selectedNotes, setSelectedNotes] = useState<string | null>(null)
-  const [deletingId, setDeletingId] = useState<string | null>(null)
 
   // --- SINKRONISASI DATA SERVER & DARK MODE ---
   useEffect(() => {
@@ -124,21 +127,23 @@ export default function DashboardClient({
     setIsDocModalOpen(true)
   }
 
-  const handleDeleteDoc = async (id: string, baNumber: string) => {
-    if (!confirm(`Apakah Anda yakin ingin menghapus dokumen No BA: ${baNumber}?`)) return
+  // Handler Hapus Single Dokumen setelah dikonfirmasi via Modal
+  const handleConfirmSingleDelete = async () => {
+    if (!docToDelete) return
 
-    setDeletingId(id)
-    const res = await deleteDocumentAction(id)
-    setDeletingId(null)
+    setIsDeletingSingle(true)
+    const res = await deleteDocumentAction(docToDelete.id)
+    setIsDeletingSingle(false)
 
     if (res?.error) {
       alert(`Gagal menghapus: ${res.error}`)
     } else {
+      setDocToDelete(null)
       router.refresh()
     }
   }
 
-  // Handler Hapus Massal Per Bulan
+  // Handler Hapus Massal Per Bulan (Khusus Admin)
   const handleBulkDelete = () => {
     if (!confirm(`⚠️ PERINGATAN: Apakah Anda YAKIN ingin menghapus SELURUH data dokumen periode bulan ${bulkDeleteMonth}? Data tidak bisa dikembalikan!`)) return
 
@@ -184,7 +189,7 @@ export default function DashboardClient({
     return categoryFilteredDocs.filter((doc) => doc.status === statusFilter)
   }, [categoryFilteredDocs, statusFilter])
 
-  // 4. Filter Search Bar (Termasuk Judul & Deskripsi BA)
+  // 4. Filter Search Bar
   const searchedDocs = useMemo(() => {
     const q = searchQuery.toLowerCase().trim()
     if (!q) return statusFilteredDocs
@@ -478,7 +483,7 @@ export default function DashboardClient({
 
         </div>
 
-        {/* DONUT CHART MULTI-WARNA (ORANYE, HIJAU, MERAH) */}
+        {/* DONUT CHART MULTI-WARNA */}
         <div className="p-4 sm:p-5 bg-white text-slate-900 rounded-2xl shadow-md flex flex-col justify-between border border-slate-200">
           <div className="flex justify-between items-start">
             <div>
@@ -490,7 +495,6 @@ export default function DashboardClient({
           <div className="my-2 sm:my-4 flex items-center justify-center relative">
             <div className="relative w-24 h-24 sm:w-32 sm:h-32 flex items-center justify-center">
               <svg className="w-full h-full transform -rotate-90" viewBox="0 0 36 36">
-                {/* Track Latar Belakang */}
                 <path
                   className="text-slate-100"
                   strokeWidth="4"
@@ -499,7 +503,6 @@ export default function DashboardClient({
                   d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
                 />
 
-                {/* Segmen 1: PROSES (Oranye/Amber) */}
                 <path
                   className="text-amber-500 transition-all duration-500"
                   strokeWidth="4"
@@ -511,7 +514,6 @@ export default function DashboardClient({
                   d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
                 />
 
-                {/* Segmen 2: SELESAI (Hijau/Emerald) */}
                 <path
                   className="text-emerald-500 transition-all duration-500"
                   strokeWidth="4"
@@ -523,7 +525,6 @@ export default function DashboardClient({
                   d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
                 />
 
-                {/* Segmen 3: TERLAMBAT (Merah/Rose) */}
                 <path
                   className="text-rose-500 transition-all duration-500"
                   strokeWidth="4"
@@ -617,7 +618,6 @@ export default function DashboardClient({
               </button>
             )}
 
-            {/* TOMBOL EXPORT DIBUKA UNTUK SEMUA ROLE */}
             <button
               onClick={() => setIsExportModalOpen(true)}
               className="flex items-center gap-1 px-2.5 py-1.5 bg-emerald-800 hover:bg-emerald-700 text-white border border-emerald-600 rounded-xl text-xs font-bold transition-colors shrink-0 whitespace-nowrap"
@@ -626,7 +626,6 @@ export default function DashboardClient({
               <span>Export</span>
             </button>
 
-            {/* TOMBOL HAPUS MASSAL 1 BULAN (KHUSUS ADMIN) */}
             {profile?.role === 'admin' && (
               <button
                 onClick={() => setIsBulkDeleteModalOpen(true)}
@@ -674,7 +673,7 @@ export default function DashboardClient({
 
       </div>
 
-      {/* ================= TABEL SIRKULASI DOKUMEN (URUTAN BARU & TANPA DESKRIPSI BA) ================= */}
+      {/* ================= TABEL SIRKULASI DOKUMEN ================= */}
       <div className={`border rounded-2xl overflow-hidden shadow-xl ${
         isDarkMode ? 'bg-slate-900/80 border-slate-800' : 'bg-white border-slate-300'
       }`}>
@@ -727,20 +726,14 @@ export default function DashboardClient({
                             <Edit3 className="w-3.5 h-3.5" />
                           </button>
                           
-                          {profile?.role === 'admin' && (
-                            <button
-                              onClick={() => handleDeleteDoc(doc.id, doc.ba_number)}
-                              disabled={deletingId === doc.id}
-                              title="Hapus Dokumen"
-                              className="p-1.5 text-rose-500 hover:bg-rose-500/10 rounded-lg transition-colors disabled:opacity-50"
-                            >
-                              {deletingId === doc.id ? (
-                                <Loader2 className="w-3.5 h-3.5 animate-spin text-rose-500" />
-                              ) : (
-                                <Trash2 className="w-3.5 h-3.5" />
-                              )}
-                            </button>
-                          )}
+                          {/* MENGHUBUNGKAN PENGHAPUSAN KE MODAL KONFIRMASI CUSTOM */}
+                          <button
+                            onClick={() => setDocToDelete({ id: doc.id, baNumber: doc.ba_number })}
+                            title="Hapus Dokumen"
+                            className="p-1.5 text-rose-500 hover:bg-rose-500/10 rounded-lg transition-colors"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
                         </div>
                       </td>
 
@@ -759,7 +752,7 @@ export default function DashboardClient({
                         {doc.ba_number}
                       </td>
 
-                      {/* 5. JENIS BA (URUTAN BARU SEBELUM JUDUL BA) */}
+                      {/* 5. JENIS BA */}
                       <td className={`py-2.5 px-3 whitespace-nowrap ${isDarkMode ? 'text-slate-200' : 'text-slate-800'}`}>
                         {doc.master_ba_types?.name || '-'}
                       </td>
@@ -892,6 +885,54 @@ export default function DashboardClient({
           </div>
         </div>
       </div>
+
+      {/* ================= MODAL KONFIRMASI HAPUS SINGLE DOKUMEN ================= */}
+      {docToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-150">
+          <div className="fixed inset-0" onClick={() => !isDeletingSingle && setDocToDelete(null)} />
+          <div className={`relative z-10 w-full max-w-sm border rounded-2xl p-5 shadow-2xl space-y-4 ${
+            isDarkMode ? 'bg-slate-900 border-slate-800 text-slate-100' : 'bg-white border-slate-200 text-slate-900'
+          }`}>
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800/80">
+              <div className="flex items-center gap-2 text-rose-500">
+                <AlertTriangle className="w-5 h-5" />
+                <h3 className="text-sm font-extrabold">Hapus Dokumen</h3>
+              </div>
+              <button 
+                onClick={() => setDocToDelete(null)} 
+                disabled={isDeletingSingle}
+                className="p-1 text-slate-400 hover:text-white rounded-lg transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <p className={`text-xs leading-relaxed ${isDarkMode ? 'text-slate-300' : 'text-slate-600'}`}>
+              Apakah Anda yakin ingin menghapus dokumen No BA: <strong className="text-emerald-500 font-bold">{docToDelete.baNumber}</strong>?
+            </p>
+
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-800/80">
+              <button
+                type="button"
+                onClick={() => setDocToDelete(null)}
+                disabled={isDeletingSingle}
+                className="px-4 py-2 rounded-xl text-xs font-bold text-slate-400 hover:text-white transition-colors"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmSingleDelete}
+                disabled={isDeletingSingle}
+                className="flex items-center gap-1.5 px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-extrabold shadow-md transition-colors disabled:opacity-50"
+              >
+                {isDeletingSingle ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+                <span>{isDeletingSingle ? 'Deleting...' : 'Ya, Hapus'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ================= MODAL DETAIL KETERANGAN ================= */}
       {selectedNotes && (
