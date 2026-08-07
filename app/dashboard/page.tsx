@@ -37,8 +37,6 @@ export default async function DashboardPage() {
 
   if (error) {
     console.error('❌ FETCH DOCUMENTS ERROR:', error.message)
-  } else {
-    console.log('📦 HASIL FETCH DOCUMENTS DARI SERVER:', documents?.length, 'data ditemukan')
   }
 
   return (
@@ -47,7 +45,7 @@ export default async function DashboardPage() {
       profile={profile}
       initialDocuments={documents || []} 
       baTypes={baTypes || []}
-      baTitles={baTitles || []} // <-- DITAMBAHKAN PROP KESINI
+      baTitles={baTitles || []}
       positions={positions || []}
       profiles={profiles || []}
     />
