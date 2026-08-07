@@ -32,7 +32,7 @@ export async function createUserAction(formData: FormData) {
 
     const supabaseAdmin = getSupabaseAdmin()
 
-    // 1. Create User di Auth Supabase (Sertakan role di user_metadata agar terbaca Trigger DB)
+    // 1. Create User di Auth Supabase
     const { data, error: authError } = await supabaseAdmin.auth.admin.createUser({
       email,
       password,
@@ -45,7 +45,7 @@ export async function createUserAction(formData: FormData) {
 
     if (authError) return { error: authError.message }
 
-    // 2. Simpan / Overwrite data Profile di tabel 'profiles' dengan role yang dipilih
+    // 2. Simpan / Overwrite data Profile (Tanpa kolom email)
     if (data.user) {
       const { error: profileError } = await supabaseAdmin
         .from('profiles')
@@ -53,8 +53,7 @@ export async function createUserAction(formData: FormData) {
           {
             id: data.user.id,
             full_name: fullName,
-            role: role, // 'admin' atau 'user'
-            email: email
+            role: role // 'admin' atau 'user'
           },
           { onConflict: 'id' }
         )
@@ -94,5 +93,30 @@ export async function deleteUserAction(targetUserId: string) {
     return { success: true }
   } catch (err: any) {
     return { error: err.message || 'Gagal menghapus user' }
+  }
+}
+
+// 3. UBAH ROLE USER
+export async function updateUserRoleAction(targetUserId: string, newRole: string) {
+  try {
+    const supabaseAdmin = getSupabaseAdmin()
+
+    // Update di metadata auth
+    await supabaseAdmin.auth.admin.updateUserById(targetUserId, {
+      user_metadata: { role: newRole }
+    })
+
+    // Update di tabel profiles
+    const { error } = await supabaseAdmin
+      .from('profiles')
+      .update({ role: newRole })
+      .eq('id', targetUserId)
+
+    if (error) return { error: error.message }
+
+    revalidatePath('/dashboard')
+    return { success: true }
+  } catch (err: any) {
+    return { error: err.message || 'Gagal mengubah role user' }
   }
 }

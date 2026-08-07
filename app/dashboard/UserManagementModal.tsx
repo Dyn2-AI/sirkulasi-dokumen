@@ -1,8 +1,8 @@
 'use client'
 
 import { useState } from 'react'
-import { X, UserPlus, Shield, Trash2, Plus, Users, Loader2 } from 'lucide-react'
-import { createUserAction, deleteUserAction } from '@/app/actions/user'
+import { X, UserPlus, Shield, Trash2, Plus, Loader2 } from 'lucide-react'
+import { createUserAction, deleteUserAction, updateUserRoleAction } from '@/app/actions/user'
 import { useRouter } from 'next/navigation'
 
 interface UserManagementModalProps {
@@ -28,8 +28,12 @@ export default function UserManagementModal({
   const [role, setRole] = useState('user')
   const [loading, setLoading] = useState(false)
 
+  // Role Updating State
+  const [updatingRoleId, setUpdatingRoleId] = useState<string | null>(null)
+
   if (!isOpen) return null
 
+  // Handler Tambah User Baru
   const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault()
     setLoading(true)
@@ -56,6 +60,7 @@ export default function UserManagementModal({
     }
   }
 
+  // Handler Hapus User
   const handleDeleteUser = async (id: string, name: string) => {
     if (confirm(`Apakah Anda yakin ingin menghapus user "${name}"?`)) {
       const res = await deleteUserAction(id)
@@ -64,6 +69,19 @@ export default function UserManagementModal({
       } else {
         router.refresh()
       }
+    }
+  }
+
+  // Handler Ubah Role User (USER <-> ADMIN)
+  const handleRoleChange = async (userId: string, newRole: string) => {
+    setUpdatingRoleId(userId)
+    const res = await updateUserRoleAction(userId, newRole)
+    setUpdatingRoleId(null)
+
+    if (res?.error) {
+      alert(`Gagal mengubah role: ${res.error}`)
+    } else {
+      router.refresh()
     }
   }
 
@@ -189,40 +207,57 @@ export default function UserManagementModal({
               </div>
             </form>
           ) : (
-            /* LIST USER DAN TOMBOL HAPUS */
+            /* LIST USER DAN DROPDOWN GANTI ROLE */
             <div className="divide-y divide-slate-800 border border-slate-800 rounded-xl overflow-hidden bg-slate-950">
               {profiles.length === 0 ? (
                 <p className="p-6 text-xs text-slate-500 text-center font-bold">Belum ada pengguna terdaftar.</p>
               ) : (
                 profiles.map((p) => {
                   const isSelf = p.id === currentUserId
+                  const isUpdatingThisUser = updatingRoleId === p.id
+
                   return (
-                    <div key={p.id} className="p-3.5 flex items-center justify-between hover:bg-slate-900/60 transition-colors">
-                      <div className="flex items-center gap-3">
+                    <div key={p.id} className="p-3.5 flex items-center justify-between hover:bg-slate-900/60 transition-colors gap-3">
+                      <div className="flex items-center gap-3 min-w-0">
                         <div className="w-9 h-9 rounded-xl bg-slate-800 text-emerald-400 border border-slate-700 flex items-center justify-center font-black text-sm shrink-0">
                           {p.full_name?.charAt(0)?.toUpperCase() || 'U'}
                         </div>
-                        <div>
+                        <div className="min-w-0">
                           <div className="flex items-center gap-2">
-                            <p className="text-xs font-extrabold text-white">{p.full_name || 'Tanpa Nama'}</p>
+                            <p className="text-xs font-extrabold text-white truncate">{p.full_name || 'Tanpa Nama'}</p>
                             {isSelf && (
-                              <span className="text-[9px] bg-blue-500/20 border border-blue-500/40 text-blue-400 px-1.5 py-0.2 rounded font-black uppercase">
+                              <span className="text-[9px] bg-blue-500/20 border border-blue-500/40 text-blue-400 px-1.5 py-0.2 rounded font-black uppercase shrink-0">
                                 Anda
                               </span>
                             )}
                           </div>
-                          <p className="text-[11px] text-slate-400 font-semibold">{p.email || 'No email record'}</p>
+                          <p className="text-[11px] text-slate-400 font-semibold truncate">{p.email || 'No email record'}</p>
                         </div>
                       </div>
 
-                      <div className="flex items-center gap-3">
-                        <span className={`text-[10px] px-2.5 py-0.5 rounded-full font-black uppercase border ${
-                          p.role === 'admin' 
-                            ? 'bg-amber-500/10 text-amber-400 border-amber-500/30' 
-                            : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
-                        }`}>
-                          {p.role || 'user'}
-                        </span>
+                      <div className="flex items-center gap-2 shrink-0">
+                        {/* DROPDOWN / BADGE ROLE */}
+                        {isSelf ? (
+                          <span className="text-[10px] px-2.5 py-1 rounded-lg font-black uppercase border bg-amber-500/10 text-amber-400 border-amber-500/30">
+                            ADMIN
+                          </span>
+                        ) : (
+                          <div className="relative">
+                            <select
+                              value={p.role || 'user'}
+                              disabled={isUpdatingThisUser}
+                              onChange={(e) => handleRoleChange(p.id, e.target.value)}
+                              className={`text-[10px] px-2 py-1 rounded-lg font-black uppercase border cursor-pointer outline-none transition-colors disabled:opacity-50 ${
+                                p.role === 'admin' 
+                                  ? 'bg-amber-500/20 text-amber-400 border-amber-500/40 hover:bg-amber-500/30' 
+                                  : 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40 hover:bg-emerald-500/30'
+                              }`}
+                            >
+                              <option value="user" className="bg-slate-900 text-slate-200">USER</option>
+                              <option value="admin" className="bg-slate-900 text-amber-400">ADMIN</option>
+                            </select>
+                          </div>
+                        )}
 
                         {!isSelf && (
                           <button
