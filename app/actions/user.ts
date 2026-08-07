@@ -4,10 +4,15 @@ import { createClient } from '@supabase/supabase-js'
 import { createClient as createServerClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
 
-// Helper Supabase Client
+// Helper Supabase Admin Client
 function getSupabaseAdmin() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY
+
+  if (!key) {
+    throw new Error('SUPABASE_SERVICE_ROLE_KEY belum dikonfigurasi di Environment Variables!')
+  }
+
   return createClient(url, key, {
     auth: { autoRefreshToken: false, persistSession: false }
   })
@@ -27,28 +32,36 @@ export async function createUserAction(formData: FormData) {
 
     const supabaseAdmin = getSupabaseAdmin()
 
-    // Create User di Auth Supabase
+    // 1. Create User di Auth Supabase (Sertakan role di user_metadata agar terbaca Trigger DB)
     const { data, error: authError } = await supabaseAdmin.auth.admin.createUser({
       email,
       password,
       email_confirm: true,
-      user_metadata: { full_name: fullName }
+      user_metadata: { 
+        full_name: fullName,
+        role: role 
+      }
     })
 
     if (authError) return { error: authError.message }
 
-    // Simpan data Profile
+    // 2. Simpan / Overwrite data Profile di tabel 'profiles' dengan role yang dipilih
     if (data.user) {
       const { error: profileError } = await supabaseAdmin
         .from('profiles')
-        .upsert({
-          id: data.user.id,
-          full_name: fullName,
-          role: role,
-          email: email
-        })
+        .upsert(
+          {
+            id: data.user.id,
+            full_name: fullName,
+            role: role, // 'admin' atau 'user'
+            email: email
+          },
+          { onConflict: 'id' }
+        )
 
-      if (profileError) console.error('Profile Insert Error:', profileError.message)
+      if (profileError) {
+        return { error: `Gagal memperbarui role: ${profileError.message}` }
+      }
     }
 
     revalidatePath('/dashboard')
