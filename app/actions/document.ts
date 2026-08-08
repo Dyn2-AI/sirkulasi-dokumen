@@ -1,7 +1,22 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
+import { createClient as createAdminClient } from '@supabase/supabase-js'
 import { revalidatePath } from 'next/cache'
+
+// Helper Supabase Admin Client (Menggunakan Service Role Key)
+function getSupabaseAdmin() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY
+
+  if (!key) {
+    throw new Error('SUPABASE_SERVICE_ROLE_KEY belum dikonfigurasi di Environment Variables!')
+  }
+
+  return createAdminClient(url, key, {
+    auth: { autoRefreshToken: false, persistSession: false }
+  })
+}
 
 // 1. FETCH LOG HISTORY
 export async function getActivityLogsAction() {
@@ -69,6 +84,7 @@ export async function createDocumentAction(formData: FormData) {
     details: `Menambahkan dokumen baru No BA: ${doc.ba_number}`,
   })
 
+  revalidatePath('/dashboard')
   return { success: true }
 }
 
@@ -129,10 +145,11 @@ export async function updateDocumentAction(formData: FormData) {
     details: `Mengubah data dokumen #${doc.doc_number} (No BA: ${doc.ba_number})`,
   })
 
+  revalidatePath('/dashboard')
   return { success: true }
 }
 
-// 4. DELETE DOKUMEN + LOG
+// 4. DELETE DOKUMEN SATUAN + LOG
 export async function deleteDocumentAction(id: string) {
   const supabase = await createClient()
 
@@ -171,43 +188,62 @@ export async function deleteDocumentAction(id: string) {
     })
   }
 
+  revalidatePath('/dashboard')
   return { success: true }
 }
 
-// 5. HAPUS MASSAL DOKUMEN PER BULAN
-export async function deleteDocumentsByMonthAction(monthStr: string) {
-  const supabase = await createClient()
+// 5. HAPUS MASSAL DOKUMEN PER BULAN + LOG
+export async function deleteDocumentsByMonthAction(monthYear: string) {
+  try {
+    if (!monthYear || !monthYear.includes('-')) {
+      return { error: 'Pilih periode bulan & tahun yang valid' }
+    }
 
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return { error: 'Anda harus login terlebih dahulu.' }
+    const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
 
-  // Cek Role Admin
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('role, full_name')
-    .eq('id', user.id)
-    .single()
+    const [yearStr, monthStr] = monthYear.split('-')
+    const year = parseInt(yearStr, 10)
+    const month = parseInt(monthStr, 10)
 
-  if (profile?.role !== 'admin') {
-    return { error: 'Hanya Admin yang diizinkan menghapus data massal.' }
+    // Range Tanggal
+    const startDate = `${yearStr}-${monthStr.padStart(2, '0')}-01`
+    const nextYear = month === 12 ? year + 1 : year
+    const nextMonth = month === 12 ? 1 : month + 1
+    const endDate = `${nextYear}-${String(nextMonth).padStart(2, '0')}-01`
+
+    const supabaseAdmin = getSupabaseAdmin()
+
+    // Ekseksusi Hapus Massal via Admin Client
+    const { error, count } = await supabaseAdmin
+      .from('documents')
+      .delete({ count: 'exact' })
+      .gte('creation_date', startDate)
+      .lt('creation_date', endDate)
+
+    if (error) return { error: error.message }
+
+    // RECORD LOG (Jika user login)
+    if (user && (count || 0) > 0) {
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('full_name')
+        .eq('id', user.id)
+        .single()
+
+      await supabase.from('activity_logs').insert({
+        user_id: user.id,
+        user_name: profile?.full_name || user.email,
+        action: 'DELETE',
+        doc_number: 0,
+        ba_number: 'BULK_DELETE',
+        details: `Menghapus massal ${count} dokumen untuk periode ${monthYear}`,
+      })
+    }
+
+    revalidatePath('/dashboard')
+    return { success: true, count: count || 0 }
+  } catch (err: any) {
+    return { error: err.message || 'Gagal menghapus dokumen massal' }
   }
-
-  // Hapus semua dokumen pada bulan terpilih (format: YYYY-MM)
-  const { error, count } = await supabase
-    .from('documents')
-    .delete({ count: 'exact' })
-    .like('creation_date', `${monthStr}%`)
-
-  if (error) return { error: error.message }
-
-  // Record Activity Log
-  await supabase.from('activity_logs').insert({
-    user_id: user.id,
-    user_name: profile?.full_name || user.email,
-    action: 'DELETE_BULK',
-    details: `Menghapus massal data dokumen periode bulan ${monthStr} (${count || 0} data)`,
-  })
-
-  revalidatePath('/dashboard')
-  return { success: true, count }
 }
