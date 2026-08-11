@@ -11,6 +11,8 @@ import MasterModal from './MasterModal'
 import UserManagementModal from './UserManagementModal'
 import ActivityLogModal from './ActivityLogModal'
 import ExportExcelModal from './ExportExcelModal'
+import ImportExcelModal from './ImportExcelModal'
+import ChangePasswordModal from './ChangePasswordModal'
 
 // Icons
 import {
@@ -39,7 +41,9 @@ import {
   Sun,
   Moon,
   FilterX,
-  AlertOctagon
+  AlertOctagon,
+  UploadCloud,
+  Key
 } from 'lucide-react'
 
 interface DashboardClientProps {
@@ -50,6 +54,29 @@ interface DashboardClientProps {
   baTitles?: any[]
   positions: any[]
   profiles?: any[]
+}
+
+// Helper untuk hitung SLA dinamis (Lebih dari 3 Hari = Terlambat)
+const calculateDynamicStatus = (doc: any) => {
+  if (doc.status === 'selesai') return 'selesai'
+
+  if (doc.creation_date) {
+    const createDate = new Date(doc.creation_date)
+    const today = new Date()
+    
+    // Reset jam agar perhitungan murni berdasarkan hari
+    createDate.setHours(0, 0, 0, 0)
+    today.setHours(0, 0, 0, 0)
+
+    const diffTime = today.getTime() - createDate.getTime()
+    const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24))
+
+    if (diffDays > 3) {
+      return 'terlambat'
+    }
+  }
+
+  return doc.status || 'proses'
 }
 
 export default function DashboardClient({
@@ -82,6 +109,8 @@ export default function DashboardClient({
   const [isUserModalOpen, setIsUserModalOpen] = useState(false)
   const [isLogModalOpen, setIsLogModalOpen] = useState(false)
   const [isExportModalOpen, setIsExportModalOpen] = useState(false)
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false) // <-- STATE IMPORT BARU
+  const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false) 
 
   // State Hapus Single Dokumen (Modal UI)
   const [docToDelete, setDocToDelete] = useState<{ id: string; baNumber: string } | null>(null)
@@ -127,7 +156,6 @@ export default function DashboardClient({
     setIsDocModalOpen(true)
   }
 
-  // Handler Hapus Single Dokumen setelah dikonfirmasi via Modal
   const handleConfirmSingleDelete = async () => {
     if (!docToDelete) return
 
@@ -143,7 +171,6 @@ export default function DashboardClient({
     }
   }
 
-  // Handler Hapus Massal Per Bulan (Khusus Admin)
   const handleBulkDelete = () => {
     if (!confirm(`⚠️ PERINGATAN: Apakah Anda YAKIN ingin menghapus SELURUH data dokumen periode bulan ${bulkDeleteMonth}? Data tidak bisa dikembalikan!`)) return
 
@@ -161,20 +188,28 @@ export default function DashboardClient({
 
   // --- FILTERING DATA PIPELINE ---
 
+  // 0. Terapkan Status Dinamis (SLA > 3 Hari = Terlambat)
+  const processedDocuments = useMemo(() => {
+    return documents.map(doc => ({
+      ...doc,
+      dynamic_status: calculateDynamicStatus(doc)
+    }))
+  }, [documents])
+
   // 1. Filter Kategori BA
   const categoryFilteredDocs = useMemo(() => {
-    return documents.filter((doc) => {
+    return processedDocuments.filter((doc) => {
       if (activeCategoryTab === 'all') return true
       return (doc.category || 'teknisi') === activeCategoryTab
     })
-  }, [documents, activeCategoryTab])
+  }, [processedDocuments, activeCategoryTab])
 
-  // 2. Hitung Statistik Ringkasan
+  // 2. Hitung Statistik Ringkasan (Berdasarkan Status Dinamis)
   const stats = useMemo(() => {
     const total = categoryFilteredDocs.length
-    const inProgress = categoryFilteredDocs.filter((d) => d.status === 'proses').length
-    const completed = categoryFilteredDocs.filter((d) => d.status === 'selesai').length
-    const overdue = categoryFilteredDocs.filter((d) => d.status === 'terlambat').length
+    const inProgress = categoryFilteredDocs.filter((d) => d.dynamic_status === 'proses').length
+    const completed = categoryFilteredDocs.filter((d) => d.dynamic_status === 'selesai').length
+    const overdue = categoryFilteredDocs.filter((d) => d.dynamic_status === 'terlambat').length
 
     const pctProgress = total > 0 ? Math.round((inProgress / total) * 100) : 0
     const pctCompleted = total > 0 ? Math.round((completed / total) * 100) : 0
@@ -186,7 +221,7 @@ export default function DashboardClient({
   // 3. Filter Status SLA
   const statusFilteredDocs = useMemo(() => {
     if (statusFilter === 'all') return categoryFilteredDocs
-    return categoryFilteredDocs.filter((doc) => doc.status === statusFilter)
+    return categoryFilteredDocs.filter((doc) => doc.dynamic_status === statusFilter)
   }, [categoryFilteredDocs, statusFilter])
 
   // 4. Filter Search Bar
@@ -284,6 +319,19 @@ export default function DashboardClient({
             </div>
           </div>
 
+          {/* TOMBOL UBAH PASSWORD */}
+          <button
+            onClick={() => setIsPasswordModalOpen(true)}
+            title="Ubah Password"
+            className={`p-2 sm:p-2.5 border rounded-xl transition-colors ${
+              isDarkMode
+                ? 'bg-slate-900 hover:bg-amber-950/60 text-slate-400 hover:text-amber-400 border-slate-800'
+                : 'bg-white hover:bg-amber-50 text-slate-500 hover:text-amber-600 border-slate-300 shadow-xs'
+            }`}
+          >
+            <Key className="w-4 h-4" />
+          </button>
+
           <button
             onClick={handleSignOut}
             title="Keluar / Sign Out"
@@ -312,7 +360,7 @@ export default function DashboardClient({
                 : isDarkMode ? 'text-slate-400 hover:text-white' : 'text-slate-600 hover:text-slate-900'
             }`}
           >
-            🌐 Semua BA ({documents.length})
+            🌐 Semua BA ({processedDocuments.length})
           </button>
 
           <button
@@ -327,7 +375,7 @@ export default function DashboardClient({
             <Wrench className="w-3.5 h-3.5" />
             <span>BA Teknisi</span>
             <span className="px-1.5 py-0.5 text-[9px] bg-black/20 rounded-md">
-              {documents.filter((d) => (d.category || 'teknisi') === 'teknisi').length}
+              {processedDocuments.filter((d) => (d.category || 'teknisi') === 'teknisi').length}
             </span>
           </button>
 
@@ -343,7 +391,7 @@ export default function DashboardClient({
             <Package className="w-3.5 h-3.5" />
             <span>BA Dispatch</span>
             <span className="px-1.5 py-0.5 text-[9px] bg-black/20 rounded-md">
-              {documents.filter((d) => d.category === 'dispatch').length}
+              {processedDocuments.filter((d) => d.category === 'dispatch').length}
             </span>
           </button>
         </div>
@@ -618,6 +666,15 @@ export default function DashboardClient({
               </button>
             )}
 
+            {/* INI TOMBOL IMPORT BARU */}
+            <button
+              onClick={() => setIsImportModalOpen(true)}
+              className="flex items-center gap-1 px-2.5 py-1.5 bg-blue-800 hover:bg-blue-700 text-white border border-blue-600 rounded-xl text-xs font-bold transition-colors shrink-0 whitespace-nowrap"
+            >
+              <UploadCloud className="w-3.5 h-3.5" />
+              <span>Import</span>
+            </button>
+
             <button
               onClick={() => setIsExportModalOpen(true)}
               className="flex items-center gap-1 px-2.5 py-1.5 bg-emerald-800 hover:bg-emerald-700 text-white border border-emerald-600 rounded-xl text-xs font-bold transition-colors shrink-0 whitespace-nowrap"
@@ -788,19 +845,19 @@ export default function DashboardClient({
                         </span>
                       </td>
 
-                      {/* 9. STATUS SLA */}
+                      {/* 9. STATUS SLA DINAMIS */}
                       <td className="py-2.5 px-3 whitespace-nowrap">
-                        {doc.status === 'proses' && (
+                        {doc.dynamic_status === 'proses' && (
                           <span className="px-2 py-0.5 bg-amber-500/10 text-amber-500 border border-amber-500/30 rounded-full text-[10px] uppercase font-black">
                             proses
                           </span>
                         )}
-                        {doc.status === 'selesai' && (
+                        {doc.dynamic_status === 'selesai' && (
                           <span className="px-2 py-0.5 bg-emerald-500/10 text-emerald-500 border border-emerald-500/30 rounded-full text-[10px] uppercase font-black">
                             selesai
                           </span>
                         )}
-                        {doc.status === 'terlambat' && (
+                        {doc.dynamic_status === 'terlambat' && (
                           <span className="px-2 py-0.5 bg-rose-500/10 text-rose-500 border border-rose-500/30 rounded-full text-[10px] uppercase font-black">
                             terlambat
                           </span>
@@ -1048,10 +1105,26 @@ export default function DashboardClient({
       <ExportExcelModal
         isOpen={isExportModalOpen}
         onClose={() => setIsExportModalOpen(false)}
-        documents={initialDocuments}
+        documents={processedDocuments} // MENGGUNAKAN DATA YG SLA-NYA SUDAH DINAMIS
         baTypes={baTypes}
         baTitles={baTitles}
+        profile={profile}
       />
+
+      <ImportExcelModal
+        isOpen={isImportModalOpen}
+        onClose={() => setIsImportModalOpen(false)}
+        baTypes={baTypes}
+        positions={positions}
+        existingDocuments={documents}
+      />
+
+      <ChangePasswordModal
+        isOpen={isPasswordModalOpen}
+        onClose={() => setIsPasswordModalOpen(false)}
+      />
+
+      
 
     </div>
   )

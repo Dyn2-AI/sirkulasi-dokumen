@@ -247,3 +247,48 @@ export async function deleteDocumentsByMonthAction(monthYear: string) {
     return { error: err.message || 'Gagal menghapus dokumen massal' }
   }
 }
+
+// 6. IMPORT MASSAL DOKUMEN DARI EXCEL
+export async function bulkInsertDocumentsAction(documents: any[]) {
+  try {
+    const supabase = await createClient()
+
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return { error: 'Anda harus login terlebih dahulu.' }
+
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('full_name')
+      .eq('id', user.id)
+      .single()
+
+    // Inject updated_by ke setiap dokumen
+    const docsToInsert = documents.map(doc => ({
+      ...doc,
+      updated_by: user.id
+    }))
+
+    // Lakukan Bulk Insert ke Supabase
+    const { data, error } = await supabase
+      .from('documents')
+      .insert(docsToInsert)
+      .select('doc_number')
+
+    if (error) return { error: error.message }
+
+    // RECORD LOG
+    await supabase.from('activity_logs').insert({
+      user_id: user.id,
+      user_name: profile?.full_name || user.email,
+      action: 'CREATE',
+      doc_number: 0,
+      ba_number: 'IMPORT EXCEL',
+      details: `Melakukan import massal ${documents.length} dokumen baru`,
+    })
+
+    revalidatePath('/dashboard')
+    return { success: true, count: documents.length }
+  } catch (err: any) {
+    return { error: err.message || 'Gagal melakukan import massal' }
+  }
+}
